@@ -36,14 +36,13 @@ static DECLARE_WAIT_QUEUE_HEAD(rx_wq);
 // The prototype functions for the character driver -- must come before the struct definition
 static int     dev_open(struct inode *, struct file *);
 static int     dev_release(struct inode *, struct file *);
-static ssize_t dev_read(struct file *, char *, size_t, loff_t *);
 static ssize_t dev_write(struct file *, const char *, size_t, loff_t *);
 // static loff_t  dev_llseek(struct file *file,loff_t offset, int orig);
  
 static struct file_operations fops =
 {
    .open = dev_open,
-   .read = dev_read,
+   .read = 0,
    .write = dev_write,
    .release = dev_release,
    .llseek = 0
@@ -63,6 +62,7 @@ static enum hrtimer_restart tx_high_callback(struct hrtimer *timer)
 static enum hrtimer_restart tx_low_callback(struct hrtimer *timer)
 {
     gpiod_set_value(pin_desc, 0);
+    value = 0;
     return HRTIMER_NORESTART;
 }
 
@@ -176,43 +176,7 @@ static int dev_open(struct inode *inodep, struct file *filep)
         return -ENOMEM;
     sf = (servo_file_t*)filep->private_data;
     sf->read_pos = 0;
-    sf->read_value = 0;
-    sf->write_value = 0;
     return 0;
-}
- 
-static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *offset)
-{
-    int numlen = 0;
-    int i, j;
-    char c;
-    ssize_t r;
-    servo_file_t *sf = (servo_file_t*)filep->private_data;
-
-    if (sf->read_pos == 0) sf->read_value = value;
-
-    // get length of value in chars
-    i = sf->read_value;
-    do {
-        i /= 10;
-        numlen++;
-    } while (i);
-
-    for (r = 0; sf->read_pos <= numlen && r < len; r++, sf->read_pos++, buffer++) {
-        if (sf->read_pos < numlen) {
-            j = sf->read_value;
-            for (i = 1; i < numlen - sf->read_pos; i++)
-            {
-                j /= 10;
-            }
-            c = '0' + (j % 10);
-        } else {
-            c = '\n';
-        }
-        put_user(c, buffer);
-    }
-
-    return r;
 }
 
 
@@ -223,27 +187,34 @@ static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, lof
     servo_file_t *sf = (servo_file_t*)filep->private_data;
 
     for (r = 0; r < len; r++, buffer++) {
-        if (get_user(c, buffer)) {
+        if (get_user(c, buffer) || r > 4) {
             return -EFAULT;
         }
-        if (c >= '0' && c <= '9') {
-            sf->write_value = sf->write_value * 10 + c - '0';
-        } else if (c == '\r' || c == '\n') {
-            if (value >= PERIOD) {
-                sf->write_value = 0;
-                return -EOVERFLOW;
-            }
-            value = sf->write_value;
-            printk(KERN_INFO "servo: value set to %d\n", value);
-            sf->write_value = 0;
-            continue;
-        } else {
-            return -EINVAL;
-        }
+        sf->buffer[sf->read_pos] = c;
+        sf->read_pos += 1;
     }
-
+    if (r == 4) sf->read_pos = 0;
+    value = *(u32 *)sf->buffer;
+    printk(KERN_INFO "value changed to %d", value);
     return r;
 }
+
+/*static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
+{
+    ssize_t r;
+    char c;
+    servo_file_t *sf = (servo_file_t*)filep->private_data;
+
+    for (r = 0; r < len; r++, buffer++) {
+        if (get_user(c, buffer) || r > 4) {
+            return -EFAULT;
+        }
+        sf->buffer[r] = c;
+    }
+    value = *(u32 *)sf->buffer;
+    printk(KERN_INFO "value changed to %d", value);
+    return r;
+}*/
 
 static int dev_release(struct inode *inodep, struct file *filep)
 {
