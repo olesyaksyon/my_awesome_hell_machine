@@ -1,1 +1,0 @@
-cmd_/home/cluster/servo/servo.ko := ld -r  -EL -z noexecstack   --build-id=sha1  -T scripts/module.lds -o /home/cluster/servo/servo.ko /home/cluster/servo/servo.o /home/cluster/servo/servo.mod.o;  true

@@ -1,1 +1,0 @@
-cmd_/home/cluster/sonar/sonar.ko := ld -r  -EL -z noexecstack   --build-id=sha1  -T scripts/module.lds -o /home/cluster/sonar/sonar.ko /home/cluster/sonar/sonar.o /home/cluster/sonar/sonar.mod.o;  true
